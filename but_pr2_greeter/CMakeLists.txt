@@ -10,10 +10,13 @@ find_package(catkin REQUIRED COMPONENTS
   roslint
 )
 
+catkin_python_setup()
+
 catkin_package()
 
 include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-roslint_cpp()
+install(PROGRAMS src/face_detector.py src/greeter.py src/fake_face_detector.py
+        DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}/src)
