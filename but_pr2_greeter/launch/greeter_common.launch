@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+
+  <node pkg="sound_play" type="soundplay_node.py" name="sound_play_node" output="screen"/>
+  
+  <node pkg="pr2_head_action" type="pr2_head_action" name="pr2_head_action_node" output="screen"/>
+  
+  <include file="$(find pr2_moveit_config)/launch/move_group.launch"/>
+
+</launch>

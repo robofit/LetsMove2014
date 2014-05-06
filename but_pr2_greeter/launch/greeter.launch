@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+
+  <include file="$(find but_pr2_greeter)/launch/greeter_common.launch"/>
+  
+  <node pkg="but_pr2_greeter" type="face_detector.py" name="face_detector_node" output="screen"/>
+  
+  <node pkg="but_pr2_greeter" type="greeter.py" name="greeter_node" output="screen"/>
+
+</launch>
