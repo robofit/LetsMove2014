@@ -8,7 +8,6 @@ import threading
 
 import numpy as np
 import scipy as sp
-from scipy.stats import norm
 from scipy.ndimage.filters import median_filter
 
 import cv2
@@ -51,9 +50,6 @@ class FaceDetector:
 		self._depth_vis = None
 		
 		self._cam_model = None
-		
-		# self._face_rect = None
-		# self._face_rect_ts = None
 		
 		self._face_det = cv2.CascadeClassifier('/opt/ros/hydro/share/OpenCV/haarcascades/haarcascade_frontalface_alt2.xml')
 		self._face_det2 = cv2.CascadeClassifier('/opt/ros/hydro/share/OpenCV/haarcascades/haarcascade_profileface.xml')
@@ -147,13 +143,12 @@ class FaceDetector:
 				
 			#dist = sp.median(dist_face)
 			
-			dist_face = median_filter(dist_face, 3)
+			dist_face = median_filter(dist_face, 3) # TODO make filter size proportional to image size?
 			
 			ar = np.array([])
 			
 			for (x,y), value in np.ndenumerate(dist_face):
 				
-				#if (not isinstance(value,float)) or (value == 0):
 				if (np.isnan(value)) or (value == 0) or (value == 127):
 					
 					continue
@@ -168,15 +163,7 @@ class FaceDetector:
 				
 				return
 			
-			dist = np.amin(ar)
-			
-			#mean = ar.mean()
-			#median = sp.median(ar)
-			
-			#mu, std = norm.fit(ar)
-			
-			#print "d: " + str(dist)
-			#print "d: " + str(dist) + "(mean: " + str(mean) + ", median: " + str(median) + ", gauss: " + str(mu) + ")" 
+			dist = np.amin(ar) # min value
 			
 			cx = rects[max_area_idx][0] + rects[max_area_idx][2] / 2
 			cy = rects[max_area_idx][1] + rects[max_area_idx][3] / 2
@@ -188,13 +175,6 @@ class FaceDetector:
 			
 			ray = self._cam_model.projectPixelTo3dRay((cx, cy))
 			pt = np.dot(ray, dist / 1000.0)
-			#pt = np.dot(ray, 1)
-			
-			#print pt
-			#print "---"
-			
-			#print ray
-			#print np.linalg.norm(ray)
 			
 			pts.point.x = pt[0]
 			pts.point.y = pt[1]
@@ -220,10 +200,11 @@ class FaceDetector:
 				cv2.imshow('depth', self._depth_vis)
 	       		cv2.waitKey(1)
 	       		
-	       		r.sleep()
+	       	r.sleep()
 	       	
 
 if __name__ == '__main__':
+	
 	rospy.init_node('but_pr2_face_detector')
 	rospy.loginfo("PR2 FaceDetector")
 	

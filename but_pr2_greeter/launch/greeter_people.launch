@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+
+  <include file="$(find but_pr2_greeter)/launch/greeter_common.launch"/>
+  
+  <include file="$(find face_detector)/launch/face_detector.rgbd.launch">
+    <arg name="image_topic" value="image_rect_color"/>
+    <arg name="depth_topic" value="hw_registered/image_rect_raw"/>
+  </include>
+  
+  <node pkg="but_pr2_greeter" type="greeter.py" name="greeter_node" output="screen"/>
+
+</launch>
