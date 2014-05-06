@@ -8,6 +8,8 @@ import threading
 
 import numpy as np
 import scipy as sp
+from scipy.stats import norm
+from scipy.ndimage.filters import median_filter
 
 import cv2
 from cv_bridge import CvBridge
@@ -46,6 +48,7 @@ class FaceDetector:
 		self._img_faces = None
 		
 		self._depth = None
+		self._depth_vis = None
 		
 		self._cam_model = None
 		
@@ -53,6 +56,7 @@ class FaceDetector:
 		# self._face_rect_ts = None
 		
 		self._face_det = cv2.CascadeClassifier('/opt/ros/hydro/share/OpenCV/haarcascades/haarcascade_frontalface_alt2.xml')
+		self._face_det2 = cv2.CascadeClassifier('/opt/ros/hydro/share/OpenCV/haarcascades/haarcascade_profileface.xml')
 		
 		if self._debug:
 			
@@ -99,6 +103,14 @@ class FaceDetector:
 		self._img_gray = cv2.equalizeHist(self._img_gray)
 		
 		rects = self._face_det.detectMultiScale(self._img_gray, 1.3, 4, cv2.cv.CV_HAAR_SCALE_IMAGE, (10, 10))
+		
+		if len(rects) == 0:
+			
+			rects = self._face_det2.detectMultiScale(self._img_gray, 1.3, 4, cv2.cv.CV_HAAR_SCALE_IMAGE, (10, 10))
+			
+			if len(rects) > 0:
+				
+				rospy.loginfo("backup detector worked")
 			
 		max_area = 0
 		max_area_idx = None
@@ -110,51 +122,90 @@ class FaceDetector:
 				
 				max_area_idx = idx
 			
-		if max_area_idx is None:
+		if max_area_idx is not None:
 			
-			return
+			assert rects[max_area_idx][2] == rects[max_area_idx][3]
 			
-		# rospy.loginfo("Found face with area of: " + str(max_area))
+			size = rects[max_area_idx][2]
+			
+			#pt1 = (rects[max_area_idx][0] + size/4, rects[max_area_idx][1] + size/4)
+			#pt2 = (rects[max_area_idx][0] + size - size/4, rects[max_area_idx][1] + size - size/4)
 		
-		pt1 = (rects[max_area_idx][0], rects[max_area_idx][1])
-		pt2 = (rects[max_area_idx][0] + rects[max_area_idx][2], rects[max_area_idx][1] + rects[max_area_idx][3])
+			pt1 = (rects[max_area_idx][0], rects[max_area_idx][1])
+			pt2 = (rects[max_area_idx][0] + size, rects[max_area_idx][1] + size)
 		
-		if self._debug:
+			if self._debug:
+				
+				dbg_img = self._img_gray
+				cv2.rectangle(dbg_img, pt1, pt2, (127, 255, 0), 2)
+				self._img_faces = dbg_img
+				self._depth_vis = self._depth
+				cv2.rectangle(self._depth_vis, pt1, pt2, (127, 255, 0), 2)
+		
+				dist_face = self._depth[pt1[0]:pt2[0], pt1[1]:pt2[1]]
+		
+				
+			#dist = sp.median(dist_face)
+			
+			dist_face = median_filter(dist_face, 3)
+			
+			ar = np.array([])
+			
+			for (x,y), value in np.ndenumerate(dist_face):
+				
+				#if (not isinstance(value,float)) or (value == 0):
+				if (np.isnan(value)) or (value == 0) or (value == 127):
+					
+					continue
+				
+				ar = np.append(ar, value)
+				
+				
+			if len(ar) == 0:
+				
+				dbg_img = self._img_gray
+				self._img_faces = dbg_img
+				
+				return
+			
+			dist = np.amin(ar)
+			
+			#mean = ar.mean()
+			#median = sp.median(ar)
+			
+			#mu, std = norm.fit(ar)
+			
+			#print "d: " + str(dist)
+			#print "d: " + str(dist) + "(mean: " + str(mean) + ", median: " + str(median) + ", gauss: " + str(mu) + ")" 
+			
+			cx = rects[max_area_idx][0] + rects[max_area_idx][2] / 2
+			cy = rects[max_area_idx][1] + rects[max_area_idx][3] / 2
+	       	
+			pts = PointStamped()
+			
+			pts.header.stamp = image.header.stamp
+			pts.header.frame_id = image.header.frame_id
+			
+			ray = self._cam_model.projectPixelTo3dRay((cx, cy))
+			pt = np.dot(ray, dist / 1000.0)
+			#pt = np.dot(ray, 1)
+			
+			#print pt
+			#print "---"
+			
+			#print ray
+			#print np.linalg.norm(ray)
+			
+			pts.point.x = pt[0]
+			pts.point.y = pt[1]
+			pts.point.z = pt[2]
+			
+			self._point_pub.publish(pts)
+			
+		else:
 			
 			dbg_img = self._img_gray
-			cv2.rectangle(dbg_img, pt1, pt2, (127, 255, 0), 2)
 			self._img_faces = dbg_img
-		
-		# print pt1
-		# print pt2
-		
-		dist_face = self._depth[pt1[0]:pt2[0], pt1[1]:pt2[1]]
-		
-		# print dist_face
-				
-		dist = sp.median(dist_face)
-		
-		print "dist: " + str(dist)
-		
-		cx = rects[max_area_idx][0] + rects[max_area_idx][2] / 2
-		cy = rects[max_area_idx][1] + rects[max_area_idx][3] / 2
-       	
-		pts = PointStamped()
-		
-		pts.header.stamp = image.header.stamp
-		pts.header.frame_id = image.header.frame_id
-		
-		ray = self._cam_model.projectPixelTo3dRay((cx, cy))
-		pt = np.dot(ray, dist / 1000.0)
-		
-		#print ray
-		#print np.linalg.norm(ray)
-		
-		pts.point.x = pt[0]
-		pts.point.y = pt[1]
-		pts.point.z = pt[2]
-		
-		self._point_pub.publish(pts)
         	
 	def timer(self):
 		
@@ -162,11 +213,11 @@ class FaceDetector:
 		
 		while not rospy.is_shutdown():
 		
-			if self._img_faces is not None and self._depth is not None:
+			if self._img_faces is not None and self._depth_vis is not None:
 				
 				# TODO mutex?
 				cv2.imshow('detected_faces', self._img_faces)
-				cv2.imshow('depth', self._depth)
+				cv2.imshow('depth', self._depth_vis)
 	       		cv2.waitKey(1)
 	       		
 	       		r.sleep()
@@ -176,6 +227,6 @@ if __name__ == '__main__':
 	rospy.init_node('but_pr2_face_detector')
 	rospy.loginfo("PR2 FaceDetector")
 	
-	bpg = FaceDetector(debug=False)
+	bpg = FaceDetector(debug=True)
 	
 	rospy.spin()
