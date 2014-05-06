@@ -15,9 +15,12 @@ import pr2_controllers_msgs.msg
 from moveit_commander import MoveGroupCommander
 from sound_play.libsoundplay import SoundClient
 
+import copy
+import random
 import Queue
 import threading
 from math import sqrt, pow, fabs
+
 
 class PR2Greeter:
     
@@ -51,12 +54,13 @@ class PR2Greeter:
         
         self.l_home_pose = [0.283, 0.295, 0.537, -1.646, 0.468, -1.735]
         
-        self.l_wave_1 = [-0.1, 0.6, 1.15, -1.7, -0.97, -1.6] # [-0.361, 1.281, -0.054, -0.474, -1.435, 2.791] # base_link
-        self.l_wave_2 = [-0.1, 0.6, 1.15,  1.7, -0.97,  1.6] # [-1.272, -0.391, -0.054, -0.475, -1.435, -1.897]
+        self.l_wave_1 = [-0.1, 0.6, 1.15, -1.7, -0.97, -1.6]
+        self.l_wave_2 = [-0.1, 0.6, 1.15,  1.7, -0.97,  1.6]
         
         self.r_home_pose =   [0.124, -0.481, 0.439, -1.548, 0.36, -0.035]
         self.r_advert = [0.521, -0.508, 0.845, -1.548, 0.36, -0.035]
         
+        self.no_face_random_delay = None
         
         self._initialized = False
         
@@ -75,10 +79,87 @@ class PR2Greeter:
         self._head_thread.daemon = True
         self._head_thread.start()
         
-        self.no_face_action_to = 0
         self.new_face = False
+        self.face_last_dist = 0.0
+        
+        self.face_counter = 0
+        
+        self.actions = [self.introduceAction, self.waveHandAction, self.lookAroundAction, self.lookAroundAction, self.lookAroundAction, self.advertAction, self.numberOfFacesAction]
+        
+        self.goodbye_strings = ["Thanks for stopping by.","Enjoy the event.","See you!", "Have a nice day!"]
+        self.invite_strings = ["Hello. It's nice to see you.","Come here and take some flyer.", "I hope you are enjoying the event."]
         
         rospy.loginfo("Ready")
+    
+    def getRandomFromArray(self, arr):
+        
+        idx = random.randint(0,len(arr)-1)
+        
+        return arr[idx]
+    
+    def numberOfFacesAction(self):
+        
+        self.snd_handle.say("Today I already saw " + str(self.face_counter) + " faces.")
+        rospy.sleep(1)
+    
+    def advertAction(self):
+        
+        self.snd_handle.say("Hello. Here are some posters for you.")
+        rospy.sleep(1)
+        
+        self.go(self._right_arm, self.r_advert)
+        
+    def introduceAction(self):
+        
+        self.snd_handle.say("Hello. I'm PR2 robot. Come here to check me.")
+        rospy.sleep(1)
+        
+        
+    def waveHandAction(self):
+        
+        self.snd_handle.say("I'm here. Please come to see me.")
+        rospy.sleep(1)
+        
+        rand = random.randint(1,3)
+        
+        for _ in range(rand):
+            
+            self.wave()
+            
+        self.go(self._left_arm, self.l_home_pose)
+        
+        rospy.loginfo("Waving")
+        
+    def lookAroundAction(self):
+        
+        self.snd_handle.say("I'm looking for somebody. Please come closer.")
+        rospy.sleep(1)
+        
+        p = PointStamped()
+        p.header.stamp = rospy.Time.now()
+        p.header.frame_id = "/base_link"
+        
+        p.point.x = 2.0
+        
+        sign = random.choice([-1, 1])
+        
+        p.point.y = sign*random.uniform(1.5, 0.5)
+        p.point.z = random.uniform(1.7, 0.2)
+        self._head_buff.put(copy.deepcopy(p))
+        
+        p.point.y = -1*sign*random.uniform(1.5, 0.5)
+        p.point.z = random.uniform(1.7, 0.2)
+        self._head_buff.put(copy.deepcopy(p))
+        
+        p.point.y = sign*random.uniform(1.5, 0.5)
+        p.point.z = random.uniform(1.7, 0.2)
+        self._head_buff.put(copy.deepcopy(p))
+        
+        p.point.y = -1*sign*random.uniform(1.5, 0.5)
+        p.point.z = random.uniform(1.7, 0.2)
+        self._head_buff.put(copy.deepcopy(p))
+        
+        rospy.loginfo("Looking around")
         
     def getPointDist(self,pt):
         
@@ -156,9 +237,14 @@ class PR2Greeter:
         
     def head(self):
         
+        self._head_action_cl.wait_for_server()
+        
         while not rospy.is_shutdown():
             
             target = self._head_buff.get()
+            
+            #print "head point goal"
+            #print target
             
             # point PR2's head there (http://wiki.ros.org/pr2_controllers/Tutorials/Moving%20the%20Head)
             goal = pr2_controllers_msgs.msg.PointHeadGoal()
@@ -169,11 +255,11 @@ class PR2Greeter:
             goal.pointing_axis.y = 0
             goal.pointing_axis.z = 0
             
-            self._head_action_cl.wait_for_server()
-            
             self._head_action_cl.send_goal(goal)
             
             self._head_action_cl.wait_for_result(rospy.Duration.from_sec(5.0))
+            
+            self._head_buff.task_done()
         
     def movements(self):
         
@@ -211,38 +297,65 @@ class PR2Greeter:
         
         if self.face is None:
             
-            self.no_face_action_to = self.no_face_action_to + 1
+            if (self.no_face_random_delay is None):
+                
+                delay = random.uniform(20, 5)    
+                self.no_face_random_delay = rospy.Time.now() + rospy.Duration(delay)
+                
+                rospy.loginfo("Random delay: " + str(delay))
+                
+                return
+                
+            else:
+                
+                if rospy.Time.now() < self.no_face_random_delay:
+                    
+                    return
             
-            if self.no_face_action_to > 20: # TODO make interval not regular
+            self.init_head()
+            self.go(self._left_arm, self.l_home_pose)
+            self.go(self._right_arm, self.r_home_pose)
                 
-                self.no_face_action_to = 0
-                self.wave()
-                self.wave()
-                self.go(self._left_arm, self.l_home_pose)
+            rospy.loginfo("Starting selected action")
                 
-                # TODO add more actions to attract attention
-                self.snd_handle.say("Hey people. Come here somebody.")
-                rospy.sleep(2)
+            action = self.getRandomFromArray(self.actions)
+            
+            action()
+            
+            delay = random.uniform(30, 5)    
+            self.no_face_random_delay = rospy.Time.now() + rospy.Duration(delay)
             
             return
         
+        else:
+            
+            self.no_face_random_delay = None
+        
         if self.new_face:
+            
+            self.face_counter = self.face_counter + 1
             
             self.new_face = False
             #cd = getPointDist(self.face)
             
-            # TODO decide action based on distance
+            # TODO decide action based on distance ?
             self.go(self._left_arm, self.l_home_pose)
             self.go(self._right_arm, self.r_advert)
             
-            self.snd_handle.say("Hello. It's nice to see you.")
+            string = self.getRandomFromArray(self.invite_strings)
+            self.snd_handle.say(string)
             
             # TODO wait some min. time + say something
         
+        # after 20 seconds of no detected face, let's continue 
         if self.face.header.stamp + rospy.Duration(20) < rospy.Time.now():
+            
+            string = self.getRandomFromArray(self.goodbye_strings)
+            self.snd_handle.say(string)
             
             self.init_head()
             
+            self.go(self._left_arm, self.l_home_pose)
             self.go(self._right_arm, self.r_home_pose)
             self.face = None
             return
@@ -281,7 +394,7 @@ class PR2Greeter:
             cd = self.getPointDist(pt) # current distance
             dd = fabs(self.face_last_dist - cd) # change in distance
             
-            if dd < 20:
+            if dd < 0.2:
         
                 self.face.header = pt.header
                 
@@ -305,7 +418,7 @@ class PR2Greeter:
         
         if self.face_from == rospy.Time(0):
             
-            self.snd_handle.say('Hello. Come closer.')
+            #self.snd_handle.say('Hello. Come closer.')
             rospy.loginfo("New face.")
             self.face_from = self.face.header.stamp
         
